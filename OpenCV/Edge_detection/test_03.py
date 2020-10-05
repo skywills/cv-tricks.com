@@ -10,7 +10,7 @@ parser = argparse.ArgumentParser(
         description='This sample shows how to define custom OpenCV deep learning layers in Python. '
                     'Holistically-Nested Edge Detection (https://arxiv.org/abs/1504.06375) neural network '
                     'is used as an example model. Find a pre-trained model at https://github.com/s9xie/hed.')
-parser.add_argument('--input', help='Path to image or video. Skip to capture frames from camera',default="/home/williamkhoo/Desktop/projects/github/id-card-detector/test_images/1287648340850339842.jpg")
+parser.add_argument('--input', help='Path to image or video. Skip to capture frames from camera',default="")
 parser.add_argument('--write_video', help='Do you want to write the output video', default=False)
 parser.add_argument('--prototxt', help='Path to deploy.prototxt',default='deploy.prototxt', required=False)
 parser.add_argument('--caffemodel', help='Path to hed_pretrained_bsds.caffemodel',default='hed_pretrained_bsds.caffemodel', required=False)

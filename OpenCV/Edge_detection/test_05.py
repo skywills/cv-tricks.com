@@ -1,3 +1,4 @@
+import time
 import cv2
 import argparse
 import numpy as np
@@ -5,12 +6,12 @@ import skimage
 import skimage.feature
 from skimage.color import rgb2gray
 from skimage.transform import resize, rescale
-import random as rng
+
 parser = argparse.ArgumentParser(
         description='This sample shows how to define custom OpenCV deep learning layers in Python. '
                     'Holistically-Nested Edge Detection (https://arxiv.org/abs/1504.06375) neural network '
                     'is used as an example model. Find a pre-trained model at https://github.com/s9xie/hed.')
-parser.add_argument('--input', help='Path to image or video. Skip to capture frames from camera',default="")
+parser.add_argument('--input', help='Path to image or video. Skip to capture frames from camera')
 parser.add_argument('--write_video', help='Do you want to write the output video', default=False)
 parser.add_argument('--prototxt', help='Path to deploy.prototxt',default='deploy.prototxt', required=False)
 parser.add_argument('--caffemodel', help='Path to hed_pretrained_bsds.caffemodel',default='hed_pretrained_bsds.caffemodel', required=False)
@@ -43,59 +44,36 @@ class CropLayer(object):
     def forward(self, inputs):
         return [inputs[0][:,:,self.ystart:self.yend,self.xstart:self.xend]]
 
-def thresh_callback(src_gray, val):
-    threshold = val
+def edge_detection(image,resize_scale, sigma, l_thresh, h_thresh):
+    gray = cv2.cvtColor(image,cv2.COLOR_BGR2GRAY)
+    resized = cv2.resize(gray,(image.shape[1]//resize_scale,image.shape[0]//resize_scale))
+#     rgb = cv2.cvtColor(resized,cv2.COLOR_BGR2RGB)
+    #blur = cv2.GaussianBlur(resized, (5, 5),0)
+    blur = cv2.blur(resized,(5,5))
     
-    canny_output = cv2.Canny(src_gray, threshold, threshold * 2)
-    
-    
-    contours, _ = cv2.findContours(canny_output, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
-    
-    
-    contours_poly = [None]*len(contours)
-    boundRect = [None]*len(contours)
-    centers = [None]*len(contours)
-    radius = [None]*len(contours)
-    for i, c in enumerate(contours):
-        contours_poly[i] = cv2.approxPolyDP(c, 3, True)
-        boundRect[i] = cv2.boundingRect(contours_poly[i])
-        centers[i], radius[i] = cv2.minEnclosingCircle(contours_poly[i])
-    
-    
-    drawing = np.zeros((canny_output.shape[0], canny_output.shape[1], 3), dtype=np.uint8)
-    
-    
-    for i in range(len(contours)):
-        color = (rng.randint(0,256), rng.randint(0,256), rng.randint(0,256))
-        cv2.drawContours(drawing, contours_poly, i, color)
-        cv2.rectangle(drawing, (int(boundRect[i][0]), int(boundRect[i][1])), \
-          (int(boundRect[i][0]+boundRect[i][2]), int(boundRect[i][1]+boundRect[i][3])), color, 2)
-        cv2.circle(drawing, (int(centers[i][0]), int(centers[i][1])), int(radius[i]), color, 2)
-    
-    
-    return drawing        
+    edges = skimage.feature.canny(
+    image=blur/255.0,
+    sigma=sigma,
+    low_threshold=l_thresh,
+    high_threshold=h_thresh,
+    )
+    return image, edges
 
-def get_canny_border(image):
-    canny = auto_canny(image, 0.1)
-    #cv2.imshow('blurred',blurred)
-    cv2.imshow('canny',canny)
-    cv2.waitKey(0)    
-    pts = np.argwhere(canny>0)
-    y1,x1 = pts.min(axis=0)
-    y2,x2 = pts.max(axis=0)    
-    return canny,(x1,y1,x2,y2)
-   
+def border_detection(image,edges):
+    x = [i for i in range(edges.shape[0]) if np.count_nonzero(edges[i] == True, axis = 0)>0]
     
+#     for i in range(0,edges.shape[0]):
+#         if (edges[i].any() == True):
+#             x.append(i)
+    y = [i for i in range(edges.shape[1]) if np.count_nonzero(edges[:,i] == True, axis = 0)>0]
+#     for i in range(0,edges.transpose().shape[0]):
+#         if (edges.transpose()[i].any() == True):
+#             y.append(i)
+    if ((len(x)>0) and (len(y)>0)):
+        image = image[min(x):max(x),min(y):max(y)]
+    
+    return image# , min(x),max(x),min(y),max(y)
 
-def auto_canny(image, sigma=0.5):
-	# compute the median of the single channel pixel intensities
-	v = np.median(image)
-	# apply automatic Canny edge detection using the computed median
-	lower = int(max(0, (1.0 - sigma) * v))
-	upper = int(min(255, (1.0 + sigma) * v))
-	edged = cv2.Canny(image, lower, upper)
-	# return the edged image
-	return edged    
 
 cv2.dnn_registerLayer('Crop', CropLayer)
 
@@ -123,12 +101,25 @@ out = cv2.resize(out, (image.shape[1], image.shape[0]))
 out = 255 * out
 out = out.astype(np.uint8)
 #out=cv2.cvtColor(out,cv2.COLOR_GRAY2BGR)
-gray, (x1,y1,x2,y2) = get_canny_border(out)
-image1 = image[y1:y2, x1:x2]
-tagged = cv2.rectangle(image.copy(), (x1,y1), (x2,y2), (0,255,0), 3, cv2.LINE_AA)
-#con=np.concatenate((image,gray),axis=1)
-cv2.imshow('gray',out)
-cv2.imshow('test',tagged)
-cv2.imshow(kWinName,image1)
+#cv2.imshow('hed', out)
+#cv2.waitKey(0)
+binary = cv2.threshold(out, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)[1]
+cnts = cv2.findContours(binary, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
+cnts = cnts[0] if len(cnts) == 2 else cnts[1]
+cnt = None
+max_area = x = y = w = h = 0
+for c in cnts:
+    area = cv2.contourArea(c)
+    if area > max_area:
+        x, y, w, h = cv2.boundingRect(c)
+        max_area = area
+        cnt = c
 
+cv2.drawContours(image, [cnt], 0, (0,  255, 0), 3)
+cv2.rectangle(image, (x,y), (x+w, y+h), (255, 0, 0), 3)
+#cv2.imshow('used ',out)
+#cv2.imshow(kWinName,image)
+cv2.imshow('orgi', image)
 cv2.waitKey(0)
+
+#1.5 sec
